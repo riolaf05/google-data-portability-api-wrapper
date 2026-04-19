@@ -1,0 +1,2 @@
+# Copia come terraform.tfvars e adatta il percorso al tuo secret.json (non versionare credenziali).
+google_oauth_json_file = "../secret.json"

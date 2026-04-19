@@ -1,0 +1,17 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+terraform/**/*.tfstate
+terraform/**/*.tfstate.*
+terraform/**/lambda.zip
+terraform/**/crash.log
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local secrets (never commit)
+secret.json
+terraform/terraform.tfvars
+*.pem
