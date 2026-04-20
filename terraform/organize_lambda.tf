@@ -74,11 +74,13 @@ resource "aws_lambda_function" "organize" {
 
   environment {
     variables = {
-      ORIGIN_ADDRESS       = var.organize_origin_address
-      ORIGIN_LAT           = var.organize_origin_lat
-      ORIGIN_LON           = var.organize_origin_lon
-      CITY_FILTER          = var.organize_city_filter
-      NOMINATIM_USER_AGENT = var.organize_nominatim_user_agent
+      ORIGIN_ADDRESS           = var.organize_origin_address
+      ORIGIN_LAT               = var.organize_origin_lat
+      ORIGIN_LON               = var.organize_origin_lon
+      CITY_FILTER              = var.organize_city_filter
+      NOMINATIM_USER_AGENT     = var.organize_nominatim_user_agent
+      PLACES_AREA_MODE         = var.organize_places_area_mode
+      GOOGLE_GEOCODING_API_KEY = var.organize_google_geocoding_api_key
     }
   }
 

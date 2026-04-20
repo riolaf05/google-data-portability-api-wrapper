@@ -30,6 +30,7 @@ resource "aws_iam_role_policy" "sfn_invoke_lambda" {
         Resource = [
           aws_lambda_function.dataportability.arn,
           aws_lambda_function.organize.arn,
+          aws_lambda_function.notion.arn,
         ]
       }
     ]
@@ -42,7 +43,7 @@ resource "aws_sfn_state_machine" "pipeline" {
   type     = "STANDARD"
 
   definition = jsonencode({
-    Comment = "Export Data Portability → organizza posti e distanze"
+    Comment = "Export Data Portability → organizza posti → Notion"
     StartAt = "ExportTakeout"
     States = {
       ExportTakeout = {
@@ -70,7 +71,17 @@ resource "aws_sfn_state_machine" "pipeline" {
       FormatOutput = {
         Type      = "Pass"
         InputPath = "$.organize_invoke.Payload"
-        End       = true
+        Next      = "WriteNotion"
+      }
+      WriteNotion = {
+        Type     = "Task"
+        Resource = "arn:aws:states:::lambda:invoke"
+        Parameters = {
+          FunctionName = aws_lambda_function.notion.arn
+          "Payload.$"  = "$"
+        }
+        OutputPath = "$.Payload"
+        End        = true
       }
     }
   })

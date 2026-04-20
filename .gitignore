@@ -8,6 +8,11 @@ terraform/**/crash.log
 
 # Lambda organize bundle (generato da build.py prima di terraform apply)
 lambda_organize/build/
+lambda_notion/build/
+
+# ZIP Terraform (generati localmente)
+terraform/organize_lambda.zip
+terraform/notion_lambda.zip
 
 # Python
 __pycache__/

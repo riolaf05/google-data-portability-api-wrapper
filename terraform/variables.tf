@@ -81,3 +81,46 @@ variable "organize_origin_lon" {
   description = "Longitudine origine (WGS84)."
   default     = ""
 }
+
+variable "organize_places_area_mode" {
+  type        = string
+  description = "rome = solo URL con FID Roma/Castelli (default). all = tutti i luoghi nel CSV (area Altro/Senza FID se non classificabili)."
+  default     = "rome"
+
+  validation {
+    condition     = contains(["rome", "all"], var.organize_places_area_mode)
+    error_message = "organize_places_area_mode deve essere rome o all."
+  }
+}
+
+variable "organize_google_geocoding_api_key" {
+  type        = string
+  description = "Opzionale. Chiave Geocoding API Google; da Lambda Nominatim di solito non dà distanze."
+  default     = ""
+  sensitive   = true
+}
+
+variable "notion_integration_token" {
+  type        = string
+  description = "Token integration Notion (secret_...), senza Bearer."
+  default     = ""
+  sensitive   = true
+}
+
+variable "notion_page_id" {
+  type        = string
+  description = "ID pagina Notion (UUID nell'URL o stringa che contenga i 32 caratteri esadecimali)."
+  default     = ""
+}
+
+variable "notion_lambda_timeout" {
+  type        = number
+  description = "Timeout Lambda Notion (append blocchi / più batch)."
+  default     = 120
+}
+
+variable "notion_lambda_memory_mb" {
+  type        = number
+  description = "Memoria Lambda Notion."
+  default     = 256
+}

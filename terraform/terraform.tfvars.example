@@ -1,9 +1,51 @@
-# Copia come terraform.tfvars e adatta il percorso al tuo secret.json (non versionare credenziali).
+# =============================================================================
+# Copia questo file come terraform.tfvars e compila i valori.
+# NON committare terraform.tfvars (è in .gitignore) se contiene segreti.
+# =============================================================================
+
+# --- OAuth Google (obbligatorio per la prima Lambda: export da Google) ---
+# Path al JSON con client_id, client_secret, refresh_token (file nella root repo).
 google_oauth_json_file = "../secret.json"
 
-# Opzionale: origine distanze per la seconda Lambda (organize)
-# organize_origin_address = "Via Example 1, Roma"
-# Su Lambda, Nominatim spesso fallisce: usa coordinate (es. da Google Maps)
-# organize_origin_lat = "41.9028"
-# organize_origin_lon = "12.4964"
-# organize_nominatim_user_agent = "mia-app/1.0 (email@example.com)"
+
+# --- Seconda Lambda "organize": da dove misuri le distanze (ORIGINE) ---
+# Testo mostrato nell'output JSON (può essere il tuo indirizzo di casa).
+organize_origin_address = "Via Apuania 16, 00199 Roma"
+
+# Coordinate WGS84 dello STESSO punto (cerca su Google Maps > clic destro sul pin > coordinate).
+# Servono perché da AWS, Nominatim spesso NON geocodifica l'indirizzo.
+# Esempio valori (SOSTITUISCI con le tue coordinate reali):
+organize_origin_lat = "41.91461"
+organize_origin_lon = "12.526517"
+
+
+# --- Quali righe del CSV degli export tenere ---
+# "rome"  = solo link Maps il cui codice (FID) sembra Roma o Castelli (filtro stretto, default).
+# "all"   = tutti i luoghi nel file export (consigliato se ne vedi pochi rispetto a Maps).
+organize_places_area_mode = "rome"
+
+
+# --- Distanze verso ogni luogo: come ottenere le coordinate dei posti ---
+# Senza chiave, il codice prova Nominatim (spesso fallisce da Lambda) o lat/lon nell'URL.
+# Con chiave Google Geocoding API, cerca per nome e riempie distanza_km molto più spesso.
+#
+# Crea una chiave in Google Cloud Console > APIs > Geocoding API > credenziali API key
+# e incollala qui (stesso progetto dove abiliti la Geocoding API):
+#
+# organize_google_geocoding_api_key = "AIzaSyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+
+# Città usata nelle query di geocoding ("Nome posto, roma, Italia").
+organize_city_filter = "roma"
+
+
+# User-Agent obbligatorio se usi ancora Nominatim; metti email di contatto reale:
+organize_nominatim_user_agent = "mio-nome-gmaps-export/1.0 (nome@email.com)"
+
+
+# --- Esempio MINIMO già sufficiente dopo aver messo secret.json e coordinate origine ---
+# google_oauth_json_file      = "../secret.json"
+# organize_origin_address     = "Il mio indirizzo, Roma"
+# organize_origin_lat         = "41.91"
+# organize_origin_lon         = "12.52"
+# organize_places_area_mode   = "all"

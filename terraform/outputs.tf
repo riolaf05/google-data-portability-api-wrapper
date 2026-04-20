@@ -15,5 +15,10 @@ output "organize_lambda_function_name" {
 
 output "state_machine_arn" {
   value       = aws_sfn_state_machine.pipeline.arn
-  description = "Step Functions: export → organize."
+  description = "Step Functions: export → organize → Notion."
+}
+
+output "notion_lambda_function_name" {
+  value       = aws_lambda_function.notion.function_name
+  description = "Nome Lambda Notion."
 }

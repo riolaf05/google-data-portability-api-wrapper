@@ -11,10 +11,14 @@ Input event (Step Functions o invocazione diretta):
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Any
 
 from geopy.distance import geodesic
@@ -34,6 +38,9 @@ HINTERLAND_PREFIXES = ("0x13258", "0x1325f", "0x1325e")
 EXCLUDE_PREFIXES = ("0x132f01", "0x4786", "0x477", "0x478")
 
 FID_RE = re.compile(r"!1s(0x[0-9a-fA-F]+):(0x[0-9a-fA-F]+)")
+# Coordinate spesso presenti in URL completi (link corti export no)
+COORD_3D4D_RE = re.compile(r"!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)")
+COORD_AT_RE = re.compile(r"@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)")
 
 geolocator = Nominatim(user_agent=USER_AGENT, timeout=NOMINATIM_TIMEOUT_SEC)
 
@@ -55,6 +62,18 @@ def classify_fid(fid: str | None) -> str | None:
     if any(fid.startswith(p) for p in HINTERLAND_PREFIXES):
         return "Castelli/Hinterland"
     return None
+
+
+def classify_fid_relaxed(fid: str | None) -> str | None:
+    """Come classify_fid, ma se il FID non è Roma/Castelli ritorna 'Altro' invece di escludere."""
+    if not fid:
+        return "Senza FID in URL"
+    if any(fid.startswith(p) for p in EXCLUDE_PREFIXES):
+        return None
+    c = classify_fid(fid)
+    if c is not None:
+        return c
+    return "Altro"
 
 
 def categorize(collections: set[str], title: str, note: str) -> str:
@@ -137,9 +156,46 @@ def _first_nonempty(row: dict[str, Any], candidate_keys: list[str]) -> str:
     return ""
 
 
-def collect_places(takeout: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
+def coords_from_maps_url(url: str) -> tuple[float, float] | None:
+    """Se l'URL contiene lat/lon (link lunghi Maps), evita Nominatim."""
+    if not url:
+        return None
+    m = COORD_3D4D_RE.search(url)
+    if m:
+        return float(m.group(1)), float(m.group(2))
+    m = COORD_AT_RE.search(url)
+    if m:
+        return float(m.group(1)), float(m.group(2))
+    return None
+
+
+def geocode_google_maps_api(query: str) -> tuple[float, float, str] | None:
+    """Geocoding API Google (funziona da Lambda se la chiave è valida e API abilitata)."""
+    key = os.environ.get("GOOGLE_GEOCODING_API_KEY", "").strip()
+    if not key:
+        return None
+    params = urllib.parse.urlencode({"address": query, "key": key})
+    u = f"https://maps.googleapis.com/maps/api/geocode/json?{params}"
+    try:
+        with urllib.request.urlopen(u, timeout=15) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError) as e:
+        logger.warning("Google Geocoding fallito per %s: %s", query[:80], e)
+        return None
+    if body.get("status") != "OK" or not body.get("results"):
+        logger.warning("Google Geocoding status=%s per %s", body.get("status"), query[:80])
+        return None
+    loc = body["results"][0]["geometry"]["location"]
+    addr = body["results"][0].get("formatted_address") or query
+    return float(loc["lat"]), float(loc["lng"]), addr
+
+
+def collect_places(takeout: dict[str, Any]) -> dict[tuple[Any, ...], dict[str, Any]]:
     """Percorre takeout.downloads[].extracted[].rows (output prima Lambda / Data Portability)."""
-    places: dict[tuple[str, str], dict[str, Any]] = {}
+    places: dict[tuple[Any, ...], dict[str, Any]] = {}
+
+    mode = os.environ.get("PLACES_AREA_MODE", "rome").strip().lower()
+    use_all = mode == "all"
 
     downloads = takeout.get("downloads", [])
     for dl in downloads:
@@ -173,19 +229,24 @@ def collect_places(takeout: dict[str, Any]) -> dict[tuple[str, str], dict[str, A
 
                 if not title or not url:
                     continue
-
+                url = url.strip()
                 fid = extract_fid(url)
-                area = classify_fid(fid)
+
+                if use_all:
+                    area = classify_fid_relaxed(fid)
+                else:
+                    area = classify_fid(fid)
                 if area is None:
                     continue
 
-                key = (title.strip(), fid)
+                key: tuple[Any, ...] = (title.strip(), fid) if fid else (title.strip(), url)
+
                 if key not in places:
                     places[key] = {
                         "title": title.strip(),
                         "note": (note or "").strip(),
                         "fid": fid,
-                        "url": url.strip(),
+                        "url": url,
                         "area": area,
                         "collections": set(),
                     }
@@ -251,7 +312,25 @@ def geocode_with_retry(query: str) -> tuple[float, float, str] | None:
 
 
 def geocode_place(place: dict[str, Any], city_hint: str) -> tuple[float, float, str] | None:
+    """1) coordinate nell'URL  2) Google Geocoding API (consigliato da Lambda)  3) Nominatim."""
+    url = place.get("url") or ""
+    from_url = coords_from_maps_url(url)
+    if from_url:
+        lat, lon = from_url
+        return lat, lon, f"{lat}, {lon} (coordinate da URL Maps)"
+
     city = city_hint.strip() or "Roma"
+    if os.environ.get("GOOGLE_GEOCODING_API_KEY", "").strip():
+        for q in (
+            f'{place["title"]}, {city}, Italia',
+            f'{place["title"]}, Italia',
+            place["title"],
+        ):
+            g = geocode_google_maps_api(q)
+            time.sleep(0.05)
+            if g:
+                return g
+
     queries = [f'{place["title"]}, {city}, Italia', place["title"]]
     for q in queries:
         result = geocode_with_retry(q)
@@ -294,7 +373,11 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     origin_coords = (origin_lat, origin_lon)
 
     places_dict = collect_places(takeout)
-    logger.info("Luoghi estratti (Roma + hinterland): %s", len(places_dict))
+    logger.info(
+        "Luoghi estratti (area_mode=%s): %s",
+        os.environ.get("PLACES_AREA_MODE", "rome"),
+        len(places_dict),
+    )
 
     output: list[dict[str, Any]] = []
     for i, place in enumerate(places_dict.values(), 1):
@@ -334,5 +417,12 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         "meta": {
             "city_filter": city_filter,
             "origin_resolved_label": origin_display,
+            "places_area_mode": os.environ.get("PLACES_AREA_MODE", "rome"),
+            "geocoding": {
+                "google_api_configured": bool(
+                    os.environ.get("GOOGLE_GEOCODING_API_KEY", "").strip()
+                ),
+                "hint": "distanza_km richiede coordinate: usa GOOGLE_GEOCODING_API_KEY (consigliato) o URL Maps con !3d!4d; Nominatim spesso fallisce da AWS.",
+            },
         },
     }
