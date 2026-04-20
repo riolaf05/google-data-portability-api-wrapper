@@ -1,2 +1,9 @@
 # Copia come terraform.tfvars e adatta il percorso al tuo secret.json (non versionare credenziali).
 google_oauth_json_file = "../secret.json"
+
+# Opzionale: origine distanze per la seconda Lambda (organize)
+# organize_origin_address = "Via Example 1, Roma"
+# Su Lambda, Nominatim spesso fallisce: usa coordinate (es. da Google Maps)
+# organize_origin_lat = "41.9028"
+# organize_origin_lon = "12.4964"
+# organize_nominatim_user_agent = "mia-app/1.0 (email@example.com)"

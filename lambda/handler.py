@@ -151,16 +151,52 @@ def _access_token(creds: dict[str, str]) -> str:
     return str(data["access_token"])
 
 
+def _job_id_from_google_error_body(parsed: dict[str, Any]) -> str | None:
+    """Estrae job_id dal body errore 409 (ALREADY_EXISTS_TIME_BASED)."""
+    err = parsed.get("error")
+    if not isinstance(err, dict):
+        return None
+    for det in err.get("details") or []:
+        if not isinstance(det, dict):
+            continue
+        meta = det.get("metadata")
+        if isinstance(meta, dict) and meta.get("job_id"):
+            return str(meta["job_id"])
+    return None
+
+
 def initiate_archive(access_token: str, resources: list[str]) -> str:
+    """Avvia un job; su 409 ALREADY_EXISTS riusa il job_id indicato da Google."""
     url = f"{DATAPORTABILITY_BASE}/portabilityArchive:initiate"
-    status, data = _http_json(
-        "POST",
+    body_bytes = json.dumps({"resources": resources}).encode("utf-8")
+    req = urllib.request.Request(
         url,
-        headers={"Authorization": f"Bearer {access_token}"},
-        body={"resources": resources},
+        data=body_bytes,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
     )
-    if status not in (200, 201) or not isinstance(data, dict):
-        raise RuntimeError(f"initiate fallita: {status} {data}")
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            status = resp.getcode()
+            text = resp.read().decode("utf-8")
+            data = json.loads(text) if text else {}
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8", errors="replace")
+        try:
+            parsed: dict[str, Any] = json.loads(err_body) if err_body else {}
+        except json.JSONDecodeError:
+            parsed = {"raw": err_body}
+        if e.code == 409:
+            existing = _job_id_from_google_error_body(parsed)
+            if existing:
+                return existing
+        raise RuntimeError(f"HTTP {e.code} POST {url}: {parsed}") from e
+
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Risposta initiate non JSON oggetto: {data}")
     job_id = data.get("archiveJobId")
     if not job_id:
         raise RuntimeError(f"Nessun archiveJobId nella risposta: {data}")

@@ -6,6 +6,9 @@ terraform/**/*.tfstate.*
 terraform/**/lambda.zip
 terraform/**/crash.log
 
+# Lambda organize bundle (generato da build.py prima di terraform apply)
+lambda_organize/build/
+
 # Python
 __pycache__/
 *.py[cod]

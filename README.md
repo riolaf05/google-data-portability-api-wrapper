@@ -100,6 +100,44 @@ Variabili utili (vedi `terraform/variables.tf`):
 | `lambda_timeout` | Timeout massimo (secondi); default 900 (15 min). |
 | `max_poll_seconds` | Quanto attendere il completamento del job nell’azione `export`. |
 | `poll_interval_sec` | Intervallo tra due controlli di stato. |
+| `organize_origin_address` | Indirizzo di partenza per le distanze (testo, mostrato in output). |
+| `organize_origin_lat` / `organize_origin_lon` | Coordinate WGS84 dell’origine: se entrambe valorizzate, **non** si usa Nominatim per l’origine (consigliato: da IP AWS Nominatim spesso fallisce). |
+| `organize_city_filter` | Hint città per il geocoding Nominatim dei singoli luoghi. |
+| `organize_nominatim_user_agent` | User-Agent verso Nominatim (inserisci un contatto realistico). |
+
+Prima del **primo** `terraform apply`, genera il bundle Python della seconda Lambda (dipendenze `geopy`):
+
+```bash
+python lambda_organize/build.py
+```
+
+Ripeti dopo modifiche a `lambda_organize/lambda_function.py` o `requirements.txt` (o lancia `terraform apply`: il `null_resource` riesegue `build.py` quando cambiano gli hash).
+
+---
+
+## Step Functions (export → organize)
+
+È inclusa una state machine **STANDARD** (`{project_name}-pipeline`):
+
+1. **`ExportTakeout`** — invoca la Lambda Data Portability con `Payload = $.export_request` (stesso formato degli esempi `export-*.json` ma annidato sotto `export_request`).
+2. **`OrganizePlaces`** — passa alla seconda Lambda `takeout = Payload della prima` (l’output completo con `downloads`). L’indirizzo origine per le distanze è **`ORIGIN_ADDRESS`** impostato da Terraform sulla Lambda organize.
+3. **`FormatOutput`** — espone come output dell’esecuzione solo il JSON restituito dall’organize (`origin`, `count`, `places`, `meta`).
+
+Input esempio: `examples/step-function-input.json`.
+
+Dopo `terraform apply`, dalla **root del repo** (PowerShell):
+
+```powershell
+.\scripts\run_step_function_sync.ps1
+```
+
+Lo script legge l’ARN con `terraform output -raw state_machine_arn`, la regione dall’ARN (o `eu-south-1`), esegue `start-execution`, attende `SUCCEEDED` con `describe-execution` e scrive il risultato in **`out.json`**. Opzioni: `-Region`, `-StateMachineArn`, `-InputFile`, `-OutFile`.
+
+(`start-sync-execution` è solo per state machine **EXPRESS**, non per questa pipeline **STANDARD**.)
+
+**Limiti:** Step Functions e Lambda hanno limiti di dimensione sul payload; export molto grandi possono fallire senza passaggio intermedio su **S3**.
+
+**Override** `origin_address` / `city_filter`: invocando **direttamente** la Lambda `…-organize` (non via Step Functions) puoi passare nel body `takeout`, `origin_address`, `city_filter` come nel codice di `lambda_organize/lambda_function.py`.
 
 ---
 
@@ -159,5 +197,7 @@ Se il job supera `MAX_POLL_SECONDS`, la Lambda restituisce errore di timeout: us
 ## Struttura repository
 
 - `lambda/handler.py` — logica OAuth, job di export, download e parsing CSV.
+- `lambda_organize/` — seconda Lambda (geopy/Nominatim): organizza i luoghi e le distanze.
 - `scripts/get_refresh_token.py` — ottiene il refresh token e aggiorna `secret.json`.
-- `terraform/` — IAM, Lambda, env da `secret.json` via `terraform.tfvars`, log group, **backend locale**.
+- `scripts/run_step_function_sync.ps1` — esegue la pipeline Step Functions e scrive `out.json`.
+- `terraform/` — due Lambda, Step Functions, IAM, env da `secret.json`, **backend locale**.
